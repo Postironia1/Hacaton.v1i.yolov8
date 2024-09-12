@@ -14,6 +14,7 @@ results = model(img_path, conf=0.6)
 
 # Константы
 KNOWN_DISTANCE = 10  # Расстояние между точками в мм
+output_file = 'scale_factor.txt'  # Имя файла для сохранения коэффициента
 
 # Функция для вычисления расстояния между двумя точками
 def calculate_distance(pt1, pt2):
@@ -52,9 +53,10 @@ for result in results:
             print(f"Distance (pixels): {distance_pixels:.2f}")
             print(f"Scale factor: {scale_factor:.4f}")
             
-            # # Применение масштаба
-            # for i, (x, y) in enumerate(centers):
-            #     print(f"Point {i + 1}: ({x:.2f}, {y:.2f}) in pixels")
+            # Сохранение коэффициента в файл
+            with open(output_file, 'w') as f:
+                f.write(f"Scale factor: {scale_factor:.4f}\n")
+            print(f"Scale factor saved to {output_file}")
         else:
             print("Not enough circles detected.")
     else:

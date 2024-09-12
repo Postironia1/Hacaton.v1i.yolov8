@@ -1,54 +1,30 @@
 import cv2
 import numpy as np
+import os
 
-# Шаг 1: Коррекция искажений (если необходимо)
+# Путь к файлу с коэффициентом
+scale_factor_file = 'scale_factor.txt'
+
+# Функция для чтения коэффициента из файла
+def read_scale_factor(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            line = f.readline().strip()
+            try:
+                # Извлекаем число из строки, если оно есть
+                scale_factor = float(line.split(':')[1].strip())
+                return scale_factor
+            except (IndexError, ValueError):
+                print("Ошибка при чтении коэффициента. Используется коэффициент по умолчанию.")
+                return 1
+    else:
+        print(f"Файл {file_path} не найден. Используется коэффициент по умолчанию.")
+        return 1
+    
 def undistort_image(image, camera_matrix, dist_coeffs):
     return cv2.undistort(image, camera_matrix, dist_coeffs)
 
-# Шаг 2: Нахождение совпадающих точек и вычисление гомографии
-def find_keypoints_and_matches(img1, img2):
-    # Инициализация детектора ORB
-    orb = cv2.ORB_create()
-
-    # Нахождение ключевых точек и дескрипторов
-    kp1, des1 = orb.detectAndCompute(img1, None)
-    kp2, des2 = orb.detectAndCompute(img2, None)
-
-    # Нахождение совпадений дескрипторов
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(des1, des2)
-
-    # Сортировка совпадений по расстоянию
-    matches = sorted(matches, key=lambda x: x.distance)
-
-    # Получение точек для вычисления гомографии
-    src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-    dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-
-    return src_pts, dst_pts
-
-def rectify_images(img1, img2, camera_matrix1, camera_matrix2, dist_coeffs1, dist_coeffs2):
-    src_pts, dst_pts = find_keypoints_and_matches(img1, img2)
-
-    # Вычисление гомографии
-    H, _ = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC)
-
-    # Применение гомографии для коррекции изображения
-    img1_rectified = cv2.warpPerspective(img1, np.eye(3), (img1.shape[1], img1.shape[0]))
-    img2_rectified = cv2.warpPerspective(img2, H, (img2.shape[1], img2.shape[0]))
-
-    return img1_rectified, img2_rectified
-
-# Шаг 3: Расчет матрицы Q
-def compute_Q(camera_matrix1, camera_matrix2, R, T):
-    Q = np.array([[1, 0, 0, -camera_matrix1[0, 2]],
-                  [0, 1, 0, -camera_matrix1[1, 2]],
-                  [0, 0, 0, camera_matrix1[0, 0]],
-                  [0, 0, -1 / T[0], (camera_matrix1[0, 2] - camera_matrix2[0, 2]) / T[0]]], dtype=np.float64)
-    return Q
-
-# Шаг 4: Триангуляция и расчет 3D расстояния
-def calculate_distance_3d(point1, point2, P1, P2):
+def calculate_distance_3d(point1, point2, P1, P2, scale_factor):
     # Преобразование точек в формат, подходящий для триангуляции
     points_2d_1 = np.array([[point1[0], point1[1]], [point2[0], point2[1]]], dtype=np.float32).T
     points_2d_2 = np.array([[point1[0], point1[1]], [point2[0], point2[1]]], dtype=np.float32).T
@@ -61,7 +37,10 @@ def calculate_distance_3d(point1, point2, P1, P2):
 
     # Расчет расстояния между точками
     distance = np.linalg.norm(points_4d[:, 0] - points_4d[:, 1])
-    return distance * 0.0881
+    return distance * scale_factor
+
+# Чтение коэффициента
+scale_factor = read_scale_factor(scale_factor_file)
 
 # Параметры камеры
 fx1, fy1 = 80, 80  # Фокусное расстояние 80 мм
@@ -71,7 +50,7 @@ dist_coeffs1 = np.array([0.04, 0, 0, 0, 0], dtype=np.float64)  # Искажен�
 camera_matrix1 = np.array([[fx1, 0, cx1], [0, fy1, cy1], [0, 0, 1]], dtype=np.float64)
 camera_matrix2 = camera_matrix1  # Одинаковые параметры для обеих камер
 
-# Параметры съёмки
+# Параметры съемки
 T = np.array([412, 0, 0], dtype=np.float64)  # Расстояние между камерами 412 мм
 
 # Углы камер
@@ -97,9 +76,6 @@ img2 = cv2.imread(r'materials\calibrate\Cam2_4.jpg')
 img1_undistorted = undistort_image(img1, camera_matrix1, dist_coeffs1)
 img2_undistorted = undistort_image(img2, camera_matrix2, dist_coeffs1)
 
-# Ректификация изображений
-img1_rectified, img2_rectified = rectify_images(img1_undistorted, img2_undistorted, camera_matrix1, camera_matrix2, dist_coeffs1, dist_coeffs1)
-
 # Выбор точек на изображении
 def select_points(event, x, y, flags, param):
     global points, img_copy
@@ -109,7 +85,7 @@ def select_points(event, x, y, flags, param):
         cv2.imshow("Image", img_copy)
 
 points = []
-img_copy = img1_rectified.copy()
+img_copy = img1_undistorted.copy()
 
 cv2.imshow("Image", img_copy)
 cv2.setMouseCallback("Image", select_points)
@@ -126,7 +102,7 @@ if len(points) == 2:
     P2 = np.hstack((camera_matrix2 @ R, -camera_matrix2 @ R @ T.reshape(-1, 1)))
 
     # Расчет расстояния в 3D
-    distance = calculate_distance_3d(point1, point2, P1, P2)
-    print(f"Расстояние между точками: {distance} мм")
+    distance = calculate_distance_3d(point1, point2, P1, P2, scale_factor)
+    print(f"Расстояние между точками: {distance:.2f} мм")
 else:
     print("Выберите две точки на изображении.")
