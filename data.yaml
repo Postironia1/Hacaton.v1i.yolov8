@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 2
+names: ['circle point', 'white circle']
+
+roboflow:
+  workspace: blumclicker
+  project: hacaton-u33wc
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/blumclicker/hacaton-u33wc/dataset/1
